@@ -3,7 +3,16 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.2.32602.215
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "FerrumWinTun", "src\FerrumWinTun\FerrumWinTun.vcxproj", "{C289C3C7-97A3-451C-BB74-16E288D72774}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "LibFerrumWinTun", "LibFerrumWinTun\LibFerrumWinTun.vcxproj", "{E893F9CB-45E2-4552-803E-2EED3BD108C8}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "UnitTestLibFerrum", "UnitTestLibFerrum\UnitTestLibFerrum.vcxproj", "{EA5F1D31-A797-491A-A98C-615C0C776208}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "FerrumWinTun", "FerrumWinTun\FerrumWinTun.vcxproj", "{60103A5F-1ED0-4A8D-81D7-42E9D402E8FD}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{AA02F0AF-DE4A-47AA-B66D-FA3A3C47CA00}"
+	ProjectSection(SolutionItems) = preProject
+		README.md = README.md
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -13,14 +22,30 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{C289C3C7-97A3-451C-BB74-16E288D72774}.Debug|x64.ActiveCfg = Debug|x64
-		{C289C3C7-97A3-451C-BB74-16E288D72774}.Debug|x64.Build.0 = Debug|x64
-		{C289C3C7-97A3-451C-BB74-16E288D72774}.Debug|x86.ActiveCfg = Debug|Win32
-		{C289C3C7-97A3-451C-BB74-16E288D72774}.Debug|x86.Build.0 = Debug|Win32
-		{C289C3C7-97A3-451C-BB74-16E288D72774}.Release|x64.ActiveCfg = Release|x64
-		{C289C3C7-97A3-451C-BB74-16E288D72774}.Release|x64.Build.0 = Release|x64
-		{C289C3C7-97A3-451C-BB74-16E288D72774}.Release|x86.ActiveCfg = Release|Win32
-		{C289C3C7-97A3-451C-BB74-16E288D72774}.Release|x86.Build.0 = Release|Win32
+		{E893F9CB-45E2-4552-803E-2EED3BD108C8}.Debug|x64.ActiveCfg = Debug|x64
+		{E893F9CB-45E2-4552-803E-2EED3BD108C8}.Debug|x64.Build.0 = Debug|x64
+		{E893F9CB-45E2-4552-803E-2EED3BD108C8}.Debug|x86.ActiveCfg = Debug|Win32
+		{E893F9CB-45E2-4552-803E-2EED3BD108C8}.Debug|x86.Build.0 = Debug|Win32
+		{E893F9CB-45E2-4552-803E-2EED3BD108C8}.Release|x64.ActiveCfg = Release|x64
+		{E893F9CB-45E2-4552-803E-2EED3BD108C8}.Release|x64.Build.0 = Release|x64
+		{E893F9CB-45E2-4552-803E-2EED3BD108C8}.Release|x86.ActiveCfg = Release|Win32
+		{E893F9CB-45E2-4552-803E-2EED3BD108C8}.Release|x86.Build.0 = Release|Win32
+		{EA5F1D31-A797-491A-A98C-615C0C776208}.Debug|x64.ActiveCfg = Debug|x64
+		{EA5F1D31-A797-491A-A98C-615C0C776208}.Debug|x64.Build.0 = Debug|x64
+		{EA5F1D31-A797-491A-A98C-615C0C776208}.Debug|x86.ActiveCfg = Debug|Win32
+		{EA5F1D31-A797-491A-A98C-615C0C776208}.Debug|x86.Build.0 = Debug|Win32
+		{EA5F1D31-A797-491A-A98C-615C0C776208}.Release|x64.ActiveCfg = Release|x64
+		{EA5F1D31-A797-491A-A98C-615C0C776208}.Release|x64.Build.0 = Release|x64
+		{EA5F1D31-A797-491A-A98C-615C0C776208}.Release|x86.ActiveCfg = Release|Win32
+		{EA5F1D31-A797-491A-A98C-615C0C776208}.Release|x86.Build.0 = Release|Win32
+		{60103A5F-1ED0-4A8D-81D7-42E9D402E8FD}.Debug|x64.ActiveCfg = Debug|x64
+		{60103A5F-1ED0-4A8D-81D7-42E9D402E8FD}.Debug|x64.Build.0 = Debug|x64
+		{60103A5F-1ED0-4A8D-81D7-42E9D402E8FD}.Debug|x86.ActiveCfg = Debug|Win32
+		{60103A5F-1ED0-4A8D-81D7-42E9D402E8FD}.Debug|x86.Build.0 = Debug|Win32
+		{60103A5F-1ED0-4A8D-81D7-42E9D402E8FD}.Release|x64.ActiveCfg = Release|x64
+		{60103A5F-1ED0-4A8D-81D7-42E9D402E8FD}.Release|x64.Build.0 = Release|x64
+		{60103A5F-1ED0-4A8D-81D7-42E9D402E8FD}.Release|x86.ActiveCfg = Release|Win32
+		{60103A5F-1ED0-4A8D-81D7-42E9D402E8FD}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

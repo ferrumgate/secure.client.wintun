@@ -21,7 +21,7 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{c289c3c7-97a3-451c-bb74-16e288d72774}</ProjectGuid>
+    <ProjectGuid>{60103a5f-1ed0-4a8d-81d7-42e9d402e8fd}</ProjectGuid>
     <RootNamespace>FerrumWinTun</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
@@ -42,7 +42,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
@@ -104,13 +104,16 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>C:\Users\test\Desktop\ferrum\secure.client.wintun\lib\wintun\include;C:\Users\test\Desktop\ferrum\secure.client.wintun\LibFerrumWinTun;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <ShowProgress>LinkVerboseLib</ShowProgress>
-      <AdditionalDependencies>iphlpapi.lib;kernel32.lib;ntdll.lib;ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ntdll.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>copy $(SolutionDir)lib\wintun\bin\amd64\wintun.dll $(TargetDir)</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -132,11 +135,9 @@
     <ClCompile Include="FerrumWinTun.c" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="wintun.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="..\..\LICENSE" />
-    <None Include="..\..\README.md" />
+    <ProjectReference Include="..\LibFerrumWinTun\LibFerrumWinTun.vcxproj">
+      <Project>{e893f9cb-45e2-4552-803e-2eed3bd108c8}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

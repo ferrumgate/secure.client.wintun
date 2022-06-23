@@ -3,19 +3,8 @@
  * Copyright (C) 2018-2021 WireGuard LLC. All Rights Reserved.
  */
 
+#include "ferrumWinTun.h"
 
-
-#include <winsock2.h>
-#include <Windows.h>
-#include <ws2ipdef.h>
-#include <iphlpapi.h>
-#include <mstcpip.h>
-#include <ip2string.h>
-#include <winternl.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include "wintun.h"
 
 static WINTUN_CREATE_ADAPTER_FUNC* WintunCreateAdapter;
 static WINTUN_CLOSE_ADAPTER_FUNC* WintunCloseAdapter;
@@ -32,26 +21,23 @@ static WINTUN_RELEASE_RECEIVE_PACKET_FUNC* WintunReleaseReceivePacket;
 static WINTUN_ALLOCATE_SEND_PACKET_FUNC* WintunAllocateSendPacket;
 static WINTUN_SEND_PACKET_FUNC* WintunSendPacket;
 
-static HMODULE
-InitializeWintun(void)
+DWORD
+LogError(_In_z_ const WCHAR* Prefix, _In_ DWORD Error);
+
+static DWORD64 Now(VOID)
 {
-    HMODULE Wintun =
-        LoadLibraryExW(L"wintun.dll", NULL, LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if (!Wintun)
-        return NULL;
-#define X(Name) ((*(FARPROC *)&Name = GetProcAddress(Wintun, #Name)) == NULL)
-    if (X(WintunCreateAdapter) || X(WintunCloseAdapter) || X(WintunOpenAdapter) || X(WintunGetAdapterLUID) ||
-        X(WintunGetRunningDriverVersion) || X(WintunDeleteDriver) || X(WintunSetLogger) || X(WintunStartSession) ||
-        X(WintunEndSession) || X(WintunGetReadWaitEvent) || X(WintunReceivePacket) || X(WintunReleaseReceivePacket) ||
-        X(WintunAllocateSendPacket) || X(WintunSendPacket))
-#undef X
-    {
-        DWORD LastError = GetLastError();
-        FreeLibrary(Wintun);
-        SetLastError(LastError);
-        return NULL;
-    }
-    return Wintun;
+    LARGE_INTEGER Timestamp;
+    NtQuerySystemTime(&Timestamp);
+    return Timestamp.QuadPart;
+}
+
+static DWORD
+LogLastError(_In_z_ const WCHAR* Prefix)
+{
+    DWORD LastError = GetLastError();
+    LogError(Prefix, LastError);
+    SetLastError(LastError);
+    return LastError;
 }
 
 static void CALLBACK
@@ -88,12 +74,6 @@ ConsoleLogger(_In_ WINTUN_LOGGER_LEVEL Level, _In_ DWORD64 Timestamp, _In_z_ con
         LogLine);
 }
 
-static DWORD64 Now(VOID)
-{
-    LARGE_INTEGER Timestamp;
-    NtQuerySystemTime(&Timestamp);
-    return Timestamp.QuadPart;
-}
 
 static DWORD
 LogError(_In_z_ const WCHAR* Prefix, _In_ DWORD Error)
@@ -123,14 +103,41 @@ LogError(_In_z_ const WCHAR* Prefix, _In_ DWORD Error)
     return Error;
 }
 
-static DWORD
-LogLastError(_In_z_ const WCHAR* Prefix)
+
+static HMODULE
+InitializeWintun(void)
 {
-    DWORD LastError = GetLastError();
-    LogError(Prefix, LastError);
-    SetLastError(LastError);
-    return LastError;
+    //WCHAR cwd[128];
+    //GetCurrentDirectoryW(sizeof(cwd)/2, cwd);
+    //WCHAR cwdf[128];
+    //_snwprintf_s(cwdf, sizeof(cwdf)/2,128, L"cwd is %s", cwd);
+    //ConsoleLogger(WINTUN_LOG_INFO, Now(), cwdf);
+    
+    HMODULE Wintun =
+        LoadLibraryExW(L"wintun.dll", NULL, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+    if (!Wintun) {
+        return NULL;
+    }
+#define X(Name) ((*(FARPROC *)&Name = GetProcAddress(Wintun, #Name)) == NULL)
+    if (X(WintunCreateAdapter) || X(WintunCloseAdapter) || X(WintunOpenAdapter) || X(WintunGetAdapterLUID) ||
+        X(WintunGetRunningDriverVersion) || X(WintunDeleteDriver) || X(WintunSetLogger) || X(WintunStartSession) ||
+        X(WintunEndSession) || X(WintunGetReadWaitEvent) || X(WintunReceivePacket) || X(WintunReleaseReceivePacket) ||
+        X(WintunAllocateSendPacket) || X(WintunSendPacket))
+#undef X
+    {
+        DWORD LastError = GetLastError();
+        FreeLibrary(Wintun);
+        SetLastError(LastError);
+        return NULL;
+    }
+    return Wintun;
 }
+
+
+
+
+
+
 
 static void
 Log(_In_ WINTUN_LOGGER_LEVEL Level, _In_z_ const WCHAR* Format, ...)
@@ -291,15 +298,18 @@ SendPackets(_Inout_ DWORD_PTR SessionPtr)
     return ERROR_SUCCESS;
 }
 
-int __cdecl main(void)
+int __cdecl ferrumStartWinTun()
 {
+    //clear all states
+    ZeroMemory(&ferrum, sizeof(ferrum));
     HMODULE Wintun = InitializeWintun();
     if (!Wintun)
         return LogError(L"Failed to initialize Wintun", GetLastError());
+    ferrum.loadedLib = 1;
     WintunSetLogger(ConsoleLogger);
     Log(WINTUN_LOG_INFO, L"Wintun library loaded");
 
-    DWORD LastError;
+    DWORD LastError = ERROR_SUCCESS;
     HaveQuit = FALSE;
     QuitEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
     if (!QuitEvent)
@@ -312,28 +322,38 @@ int __cdecl main(void)
         LastError = LogError(L"Failed to set console handler", GetLastError());
         goto cleanupQuit;
     }
+    
+    GUID guid = { 0x43dad8f2, 0x3304, 0x4033, { 0x8a, 0x6a, 0xb9, 0x47, 0x0c, 0x10, 0xc5, 0x75 } };
+    
 
-    GUID ExampleGuid = { 0x43dad8f2, 0x3304, 0x4033, { 0x8a,0x6a,0xb9, 0x47, 0x0c, 0x10, 0xc5, 0x74 } };
-    WINTUN_ADAPTER_HANDLE Adapter = WintunCreateAdapter(L"FerrumGate", L"Secure", &ExampleGuid);
+    WINTUN_ADAPTER_HANDLE Adapter = WintunCreateAdapter(L"FerrumGate", L"Secure", &guid);
     if (!Adapter)
     {
         LastError = GetLastError();
         LogError(L"Failed to create adapter", LastError);
         goto cleanupQuit;
+        /*Adapter = WintunOpenAdapter(L"FerrumGate");
+        if (!Adapter)
+        {
+            LastError = GetLastError();
+            LogError(L"Failed to open adapter", LastError);
+            goto cleanupQuit;
+        }*/
     }
+   
 
     DWORD Version = WintunGetRunningDriverVersion();
     Log(WINTUN_LOG_INFO, L"Wintun v%u.%u loaded", (Version >> 16) & 0xff, (Version >> 0) & 0xff);
-    LastError = ERROR_SUCCESS;
+   /* LastError = ERROR_SUCCESS;
     MIB_UNICASTIPADDRESS_ROW AddressRow;
     InitializeUnicastIpAddressEntry(&AddressRow);
-    WintunGetAdapterLUID(Adapter, &AddressRow.InterfaceLuid);
-    AddressRow.Address.Ipv4.sin_family = AF_INET;
-    AddressRow.Address.Ipv4.sin_addr.S_un.S_addr = htonl((10 << 24) | (6 << 16) | (7 << 8) | (7 << 0)); // 10.6.7.7 
-    AddressRow.OnLinkPrefixLength = 24; // This is a /24 network 
-    AddressRow.DadState = IpDadStatePreferred;
-    LastError = CreateUnicastIpAddressEntry(&AddressRow);
-    if (LastError != ERROR_SUCCESS && LastError != ERROR_OBJECT_ALREADY_EXISTS)
+    WintunGetAdapterLUID(Adapter, &AddressRow.InterfaceLuid);*/
+    //AddressRow.Address.Ipv4.sin_family = AF_INET;
+    //AddressRow.Address.Ipv4.sin_addr.S_un.S_addr = htonl((10 << 24) | (6 << 16) | (7 << 8) | (7 << 0)); // 10.6.7.7 
+    //AddressRow.OnLinkPrefixLength = 24; // This is a /24 network 
+    //AddressRow.DadState = IpDadStatePreferred;
+    //LastError = CreateUnicastIpAddressEntry(&AddressRow);
+  /*  if (LastError != ERROR_SUCCESS && LastError != ERROR_OBJECT_ALREADY_EXISTS)
     {
         LogError(L"Failed to set IP address", LastError);
         goto cleanupAdapter;
@@ -370,8 +390,13 @@ cleanupWorkers:
         }
     }
     WintunEndSession(Session);
-   
-    getchar();
+
+    getchar();*/
+    ferrum.wintun = Wintun;
+    ferrum.adapter = Adapter;
+    ferrum.quitEvent = QuitEvent;
+    ferrum.initted = 1;
+    return LastError;
 cleanupAdapter:
     WintunCloseAdapter(Adapter);
 cleanupQuit:
@@ -381,3 +406,185 @@ cleanupWintun:
     FreeLibrary(Wintun);
     return LastError;
 }
+
+int __cdecl ferrumStopWinTun() {
+    if (ferrum.initted) {
+        SetEvent(ferrum.quitEvent);
+        WintunCloseAdapter(ferrum.adapter);
+        SetConsoleCtrlHandler(CtrlHandler, FALSE);
+        CloseHandle(ferrum.quitEvent);
+       
+    }
+    if(ferrum.loadedLib)
+    FreeLibrary(ferrum.wintun);
+    ZeroMemory(&ferrum, sizeof(ferrum));
+
+    return ERROR_SUCCESS;
+    
+}
+
+#define BUFSIZE 4096
+
+// read child process stdout and write to parent stdout
+static DWORD WINAPI
+readFromChildStdOut()
+{
+    DWORD dwRead, dwWritten;
+    CHAR chBuf[BUFSIZE];
+    BOOL bSuccess = FALSE;
+    HANDLE hParentStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    
+    while (ferrum.work)
+    {
+        
+        bSuccess = ReadFile(ferrum.childProcess.stdoutRD, chBuf, BUFSIZE, &dwRead, NULL);
+        if (!bSuccess || dwRead == 0) break;
+        
+        bSuccess = WriteFile(hParentStdOut, chBuf,
+            dwRead, &dwWritten, NULL);
+        if (!bSuccess) break;
+    }
+    return ERROR_SUCCESS;
+}
+
+// read child process stderr and write to parent stderr
+static DWORD WINAPI
+readFromChildStdErr()
+{
+    DWORD dwRead, dwWritten;
+    CHAR chBuf[BUFSIZE];
+    BOOL bSuccess = FALSE;
+    HANDLE hParentStdErr = GetStdHandle(STD_ERROR_HANDLE);
+
+    while (ferrum.work)
+    {
+
+        bSuccess = ReadFile(ferrum.childProcess.stderrRD, chBuf, BUFSIZE, &dwRead, NULL);
+        if (!bSuccess || dwRead == 0) break;
+
+        bSuccess = WriteFile(hParentStdErr, chBuf,
+            dwRead, &dwWritten, NULL);
+        if (!bSuccess) break;
+    }
+    return ERROR_SUCCESS;
+}
+
+int ferrumCreateChildProcess(TCHAR szCmdline[], PROCESS_INFORMATION* pi)
+// Create a child process that uses the previously created pipes for STDIN and STDOUT.
+{
+    
+
+    SECURITY_ATTRIBUTES saAttr;
+
+    
+
+    // Set the bInheritHandle flag so pipe handles are inherited. 
+
+    saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
+    saAttr.bInheritHandle = TRUE;
+    saAttr.lpSecurityDescriptor = NULL;
+
+
+
+
+
+    // Create a pipe for the child process's STDOUT. 
+    if (!CreatePipe(&ferrum.childProcess.stdoutRD, &ferrum.childProcess.stdoutWR, &saAttr, 0)) {
+        LogLastError(TEXT("StdoutRd CreatePipe"));
+        return ERROR_PROCESS_ABORTED;
+    }
+
+    // Ensure the read handle to the pipe for STDOUT is not inherited.
+    if (!SetHandleInformation(ferrum.childProcess.stdoutRD, HANDLE_FLAG_INHERIT, 0)){
+        LogLastError(TEXT("Stdout SetHandleInformation"));
+        return ERROR_PROCESS_ABORTED;
+    }
+
+
+    // Create a pipe for the child process's STDERR. 
+    if (!CreatePipe(&ferrum.childProcess.stderrRD, &ferrum.childProcess.stderrWR, &saAttr, 0)) {
+        LogLastError(TEXT("StdoutRd CreatePipe"));
+        return ERROR_PROCESS_ABORTED;
+    }
+
+    // Ensure the read handle to the pipe for STDERR is not inherited.
+    if (!SetHandleInformation(ferrum.childProcess.stderrRD, HANDLE_FLAG_INHERIT, 0)){
+        LogLastError(TEXT("Stdout SetHandleInformation"));
+        return ERROR_PROCESS_ABORTED;
+    }
+
+
+
+    // Create a pipe for the child process's STDIN. 
+    if (!CreatePipe(&ferrum.childProcess.stdinRD, &ferrum.childProcess.stdinWR, &saAttr, 0)){
+        LogLastError(TEXT("Stdin CreatePipe"));
+        return ERROR_PROCESS_ABORTED;
+    }
+
+    // Ensure the write handle to the pipe for STDIN is not inherited. 
+    if (!SetHandleInformation(ferrum.childProcess.stdinWR, HANDLE_FLAG_INHERIT, 0)){
+        LogLastError(TEXT("Stdin SetHandleInformation"));
+        return ERROR_PROCESS_ABORTED;
+    }
+
+
+
+
+    
+    STARTUPINFO siStartInfo;
+    BOOL bSuccess = FALSE;
+
+    // Set up members of the PROCESS_INFORMATION structure. 
+
+    ZeroMemory(pi, sizeof(PROCESS_INFORMATION));
+
+    // Set up members of the STARTUPINFO structure. 
+    // This structure specifies the STDIN and STDOUT handles for redirection.
+
+    ZeroMemory(&siStartInfo, sizeof(STARTUPINFO));
+    siStartInfo.cb = sizeof(STARTUPINFO);
+    siStartInfo.hStdError = ferrum.childProcess.stderrWR;
+    siStartInfo.hStdOutput = ferrum.childProcess.stdoutWR;
+    siStartInfo.hStdInput = ferrum.childProcess.stdinRD;
+    siStartInfo.dwFlags |= STARTF_USESTDHANDLES;
+
+    // Create the child process. 
+    LPTSTR cmd = _tcsdup(szCmdline);
+    bSuccess = CreateProcess(NULL,
+        cmd,     // command line 
+        NULL,          // process security attributes 
+        NULL,          // primary thread security attributes 
+        TRUE,          // handles are inherited 
+        0,             // creation flags 
+        NULL,          // use parent's environment 
+        NULL,          // use parent's current directory 
+        &siStartInfo,  // STARTUPINFO pointer 
+        pi);  // receives PROCESS_INFORMATION 
+    free(cmd);
+    // If an error occurs, exit the application. 
+    if (!bSuccess)
+    {
+        LogLastError(L"process create failed: ");
+        return ERROR_PROCESS_ABORTED;
+    }
+    ferrum.work = 1;
+    ferrum.childProcess.stdoutThread= CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)readFromChildStdOut, (LPVOID)NULL, 0, NULL);
+    ferrum.childProcess.stderrThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)readFromChildStdErr, (LPVOID)NULL, 0, NULL);
+    return ERROR_SUCCESS;
+   
+}
+
+int ferrumWaitChildProcess(PROCESS_INFORMATION* pi) {
+    WaitForSingleObject(pi->hProcess, INFINITE);
+    ferrum.work = 0;
+    CloseHandle(pi->hProcess);
+    CloseHandle(pi->hThread);
+    CloseHandle(ferrum.childProcess.stderrWR);
+    CloseHandle(ferrum.childProcess.stdoutWR);
+    CloseHandle(ferrum.childProcess.stdinRD);
+    CloseHandle(ferrum.childProcess.stderrThread);
+    CloseHandle(ferrum.childProcess.stdoutThread);
+
+    return ERROR_SUCCESS;
+}
+
