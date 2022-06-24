@@ -21,6 +21,9 @@ static WINTUN_RELEASE_RECEIVE_PACKET_FUNC* WintunReleaseReceivePacket;
 static WINTUN_ALLOCATE_SEND_PACKET_FUNC* WintunAllocateSendPacket;
 static WINTUN_SEND_PACKET_FUNC* WintunSendPacket;
 
+
+#define BUFSIZE 4096
+
 DWORD
 LogError(_In_z_ const WCHAR* Prefix, _In_ DWORD Error);
 
@@ -150,8 +153,8 @@ Log(_In_ WINTUN_LOGGER_LEVEL Level, _In_z_ const WCHAR* Format, ...)
     ConsoleLogger(Level, Now(), LogLine);
 }
 
-static HANDLE QuitEvent;
-static volatile BOOL HaveQuit;
+
+
 
 static BOOL WINAPI
 CtrlHandler(_In_ DWORD CtrlType)
@@ -163,9 +166,9 @@ CtrlHandler(_In_ DWORD CtrlType)
     case CTRL_CLOSE_EVENT:
     case CTRL_LOGOFF_EVENT:
     case CTRL_SHUTDOWN_EVENT:
-        Log(WINTUN_LOG_INFO, L"Cleaning up and shutting down...");
-        HaveQuit = TRUE;
-        SetEvent(QuitEvent);
+        Log(WINTUN_LOG_INFO, L"cleaning up and shutting down...");
+        ferrum.work = FALSE;
+        SetEvent(ferrum.quitEvent);
         return TRUE;
     }
     return FALSE;
@@ -176,7 +179,7 @@ PrintPacket(_In_ const BYTE* Packet, _In_ DWORD PacketSize)
 {
     if (PacketSize < 20)
     {
-        Log(WINTUN_LOG_INFO, L"Received packet without room for an IP header");
+        Log(WINTUN_LOG_INFO, L"received packet without room for an IP header");
         return;
     }
     BYTE IpVersion = Packet[0] >> 4, Proto;
@@ -190,7 +193,7 @@ PrintPacket(_In_ const BYTE* Packet, _In_ DWORD PacketSize)
     }
     else if (IpVersion == 6 && PacketSize < 40)
     {
-        Log(WINTUN_LOG_INFO, L"Received packet without room for an IP header");
+        Log(WINTUN_LOG_INFO, L"received packet without room for an IP header");
         return;
     }
     else if (IpVersion == 6)
@@ -202,13 +205,13 @@ PrintPacket(_In_ const BYTE* Packet, _In_ DWORD PacketSize)
     }
     else
     {
-        Log(WINTUN_LOG_INFO, L"Received packet that was not IP");
+        Log(WINTUN_LOG_INFO, L"received packet that was not IP");
         return;
     }
     if (Proto == 1 && PacketSize >= 8 && Packet[0] == 0)
-        Log(WINTUN_LOG_INFO, L"Received IPv%d ICMP echo reply from %s to %s", IpVersion, Src, Dst);
+        Log(WINTUN_LOG_INFO, L"received IPv%d ICMP echo reply from %s to %s", IpVersion, Src, Dst);
     else
-        Log(WINTUN_LOG_INFO, L"Received IPv%d proto 0x%x packet from %s to %s", IpVersion, Proto, Src, Dst);
+        Log(WINTUN_LOG_INFO, L"received IPv%d proto 0x%x packet from %s to %s", IpVersion, Proto, Src, Dst);
 }
 
 static USHORT
@@ -237,89 +240,34 @@ MakeICMP(_Out_writes_bytes_all_(28) BYTE Packet[28])
     *(USHORT*)&Packet[10] = IPChecksum(Packet, 20);
     Packet[20] = 8;
     *(USHORT*)&Packet[22] = IPChecksum(&Packet[20], 8);
-    Log(WINTUN_LOG_INFO, L"Sending IPv4 ICMP echo request to 10.6.7.8 from 10.6.7.7");
+    Log(WINTUN_LOG_INFO, L"sending IPv4 ICMP echo request to 10.6.7.8 from 10.6.7.7");
 }
 
-static DWORD WINAPI
-ReceivePackets(_Inout_ DWORD_PTR SessionPtr)
-{
-    WINTUN_SESSION_HANDLE Session = (WINTUN_SESSION_HANDLE)SessionPtr;
-    HANDLE WaitHandles[] = { WintunGetReadWaitEvent(Session), QuitEvent };
 
-    while (!HaveQuit)
-    {
-        DWORD PacketSize;
-        BYTE* Packet = WintunReceivePacket(Session, &PacketSize);
-        if (Packet)
-        {
-            PrintPacket(Packet, PacketSize);
-            WintunReleaseReceivePacket(Session, Packet);
-        }
-        else
-        {
-            DWORD LastError = GetLastError();
-            switch (LastError)
-            {
-            case ERROR_NO_MORE_ITEMS:
-                if (WaitForMultipleObjects(_countof(WaitHandles), WaitHandles, FALSE, INFINITE) == WAIT_OBJECT_0)
-                    continue;
-                return ERROR_SUCCESS;
-            default:
-                LogError(L"Packet read failed", LastError);
-                return LastError;
-            }
-        }
-    }
-    return ERROR_SUCCESS;
-}
 
-static DWORD WINAPI
-SendPackets(_Inout_ DWORD_PTR SessionPtr)
-{
-    WINTUN_SESSION_HANDLE Session = (WINTUN_SESSION_HANDLE)SessionPtr;
-    while (!HaveQuit)
-    {
-        BYTE* Packet = WintunAllocateSendPacket(Session, 28);
-        if (Packet)
-        {
-            MakeICMP(Packet);
-            WintunSendPacket(Session, Packet);
-        }
-        else if (GetLastError() != ERROR_BUFFER_OVERFLOW)
-            return LogLastError(L"Packet write failed");
-
-        switch (WaitForSingleObject(QuitEvent, 1000 /* 1 second */))
-        {
-        case WAIT_ABANDONED:
-        case WAIT_OBJECT_0:
-            return ERROR_SUCCESS;
-        }
-    }
-    return ERROR_SUCCESS;
-}
-
-int __cdecl ferrumStartWinTun()
+int __cdecl 
+FerrumStartWinTun()
 {
     //clear all states
     ZeroMemory(&ferrum, sizeof(ferrum));
     HMODULE Wintun = InitializeWintun();
     if (!Wintun)
-        return LogError(L"Failed to initialize Wintun", GetLastError());
+        return LogError(L"failed to initialize Wintun", GetLastError());
     ferrum.loadedLib = 1;
     WintunSetLogger(ConsoleLogger);
-    Log(WINTUN_LOG_INFO, L"Wintun library loaded");
+    Log(WINTUN_LOG_INFO, L"wintun library loaded");
 
     DWORD LastError = ERROR_SUCCESS;
-    HaveQuit = FALSE;
-    QuitEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
-    if (!QuitEvent)
+    
+    ferrum.quitEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!ferrum.quitEvent)
     {
-        LastError = LogError(L"Failed to create event", GetLastError());
+        LastError = LogError(L"failed to create event", GetLastError());
         goto cleanupWintun;
     }
     if (!SetConsoleCtrlHandler(CtrlHandler, TRUE))
     {
-        LastError = LogError(L"Failed to set console handler", GetLastError());
+        LastError = LogError(L"failed to set console handler", GetLastError());
         goto cleanupQuit;
     }
     
@@ -330,7 +278,7 @@ int __cdecl ferrumStartWinTun()
     if (!Adapter)
     {
         LastError = GetLastError();
-        LogError(L"Failed to create adapter", LastError);
+        LogError(L"failed to create adapter", LastError);
         goto cleanupQuit;
         /*Adapter = WintunOpenAdapter(L"FerrumGate");
         if (!Adapter)
@@ -343,7 +291,7 @@ int __cdecl ferrumStartWinTun()
    
 
     DWORD Version = WintunGetRunningDriverVersion();
-    Log(WINTUN_LOG_INFO, L"Wintun v%u.%u loaded", (Version >> 16) & 0xff, (Version >> 0) & 0xff);
+    Log(WINTUN_LOG_INFO, L"wintun v%u.%u loaded", (Version >> 16) & 0xff, (Version >> 0) & 0xff);
    /* LastError = ERROR_SUCCESS;
     MIB_UNICASTIPADDRESS_ROW AddressRow;
     InitializeUnicastIpAddressEntry(&AddressRow);
@@ -394,22 +342,24 @@ cleanupWorkers:
     getchar();*/
     ferrum.wintun = Wintun;
     ferrum.adapter = Adapter;
-    ferrum.quitEvent = QuitEvent;
     ferrum.initted = 1;
     return LastError;
 cleanupAdapter:
     WintunCloseAdapter(Adapter);
 cleanupQuit:
     SetConsoleCtrlHandler(CtrlHandler, FALSE);
-    CloseHandle(QuitEvent);
+    CloseHandle(ferrum.quitEvent);
 cleanupWintun:
     FreeLibrary(Wintun);
     return LastError;
 }
 
-int __cdecl ferrumStopWinTun() {
+int __cdecl 
+FerrumStopWinTun() {
     if (ferrum.initted) {
         SetEvent(ferrum.quitEvent);
+        if (ferrum.session)
+            WintunEndSession(ferrum.session);
         WintunCloseAdapter(ferrum.adapter);
         SetConsoleCtrlHandler(CtrlHandler, FALSE);
         CloseHandle(ferrum.quitEvent);
@@ -423,11 +373,11 @@ int __cdecl ferrumStopWinTun() {
     
 }
 
-#define BUFSIZE 4096
+
 
 // read child process stdout and write to parent stdout
 static DWORD WINAPI
-readFromChildStdOut()
+ReadFromChildStdOut()
 {
     DWORD dwRead, dwWritten;
     CHAR chBuf[BUFSIZE];
@@ -449,7 +399,7 @@ readFromChildStdOut()
 
 // read child process stderr and write to parent stderr
 static DWORD WINAPI
-readFromChildStdErr()
+ReadFromChildStdErr()
 {
     DWORD dwRead, dwWritten;
     CHAR chBuf[BUFSIZE];
@@ -469,47 +419,38 @@ readFromChildStdErr()
     return ERROR_SUCCESS;
 }
 
-int ferrumCreateChildProcess(TCHAR szCmdline[], PROCESS_INFORMATION* pi)
+int FerrumCreateChildProcess(TCHAR szCmdline[], PROCESS_INFORMATION* pi)
 // Create a child process that uses the previously created pipes for STDIN and STDOUT.
-{
-    
+{   
 
     SECURITY_ATTRIBUTES saAttr;
-
-    
-
     // Set the bInheritHandle flag so pipe handles are inherited. 
-
     saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
     saAttr.bInheritHandle = TRUE;
     saAttr.lpSecurityDescriptor = NULL;
 
-
-
-
-
     // Create a pipe for the child process's STDOUT. 
     if (!CreatePipe(&ferrum.childProcess.stdoutRD, &ferrum.childProcess.stdoutWR, &saAttr, 0)) {
-        LogLastError(TEXT("StdoutRd CreatePipe"));
+        LogLastError(TEXT("stdoutRd CreatePipe failed:"));
         return ERROR_PROCESS_ABORTED;
     }
 
     // Ensure the read handle to the pipe for STDOUT is not inherited.
     if (!SetHandleInformation(ferrum.childProcess.stdoutRD, HANDLE_FLAG_INHERIT, 0)){
-        LogLastError(TEXT("Stdout SetHandleInformation"));
+        LogLastError(TEXT("StdoutRD SetHandleInformation failed:"));
         return ERROR_PROCESS_ABORTED;
     }
 
 
     // Create a pipe for the child process's STDERR. 
     if (!CreatePipe(&ferrum.childProcess.stderrRD, &ferrum.childProcess.stderrWR, &saAttr, 0)) {
-        LogLastError(TEXT("StdoutRd CreatePipe"));
+        LogLastError(TEXT("stdoutRd CreatePipe failed:"));
         return ERROR_PROCESS_ABORTED;
     }
 
     // Ensure the read handle to the pipe for STDERR is not inherited.
     if (!SetHandleInformation(ferrum.childProcess.stderrRD, HANDLE_FLAG_INHERIT, 0)){
-        LogLastError(TEXT("Stdout SetHandleInformation"));
+        LogLastError(TEXT("stderrRD SetHandleInformation failed:"));
         return ERROR_PROCESS_ABORTED;
     }
 
@@ -517,13 +458,13 @@ int ferrumCreateChildProcess(TCHAR szCmdline[], PROCESS_INFORMATION* pi)
 
     // Create a pipe for the child process's STDIN. 
     if (!CreatePipe(&ferrum.childProcess.stdinRD, &ferrum.childProcess.stdinWR, &saAttr, 0)){
-        LogLastError(TEXT("Stdin CreatePipe"));
+        LogLastError(TEXT("stdinRD CreatePipe failed:"));
         return ERROR_PROCESS_ABORTED;
     }
 
     // Ensure the write handle to the pipe for STDIN is not inherited. 
     if (!SetHandleInformation(ferrum.childProcess.stdinWR, HANDLE_FLAG_INHERIT, 0)){
-        LogLastError(TEXT("Stdin SetHandleInformation"));
+        LogLastError(TEXT("stdinWR SetHandleInformation failed:"));
         return ERROR_PROCESS_ABORTED;
     }
 
@@ -567,16 +508,17 @@ int ferrumCreateChildProcess(TCHAR szCmdline[], PROCESS_INFORMATION* pi)
         LogLastError(L"process create failed: ");
         return ERROR_PROCESS_ABORTED;
     }
-    ferrum.work = 1;
-    ferrum.childProcess.stdoutThread= CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)readFromChildStdOut, (LPVOID)NULL, 0, NULL);
-    ferrum.childProcess.stderrThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)readFromChildStdErr, (LPVOID)NULL, 0, NULL);
+    ferrum.work = TRUE;
+    ferrum.childProcess.stdoutThread= CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)ReadFromChildStdOut, (LPVOID)NULL, 0, NULL);
+    ferrum.childProcess.stderrThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)ReadFromChildStdErr, (LPVOID)NULL, 0, NULL);
     return ERROR_SUCCESS;
    
 }
 
-int ferrumWaitChildProcess(PROCESS_INFORMATION* pi) {
+int FerrumWaitChildProcess(PROCESS_INFORMATION* pi) {
     WaitForSingleObject(pi->hProcess, INFINITE);
-    ferrum.work = 0;
+    ferrum.work = FALSE;
+    SetEvent(ferrum.quitEvent);
     CloseHandle(pi->hProcess);
     CloseHandle(pi->hThread);
     CloseHandle(ferrum.childProcess.stderrWR);
@@ -584,7 +526,200 @@ int ferrumWaitChildProcess(PROCESS_INFORMATION* pi) {
     CloseHandle(ferrum.childProcess.stdinRD);
     CloseHandle(ferrum.childProcess.stderrThread);
     CloseHandle(ferrum.childProcess.stdoutThread);
+  //  CloseHandle(ferrum.childPipe.read);
+  //  CloseHandle(ferrum.childPipe.write);
+    
 
     return ERROR_SUCCESS;
 }
+
+
+int
+FerrumCreatePipe(const TCHAR name[],__inout HANDLE *pipe) {
+    BOOL   fConnected = FALSE;
+    DWORD  dwThreadId = 0;
+    HANDLE hPipe = INVALID_HANDLE_VALUE, hThread = NULL;
+    LPCTSTR lpszPipename = name;
+    // The main loop creates an instance of the named pipe and 
+// then waits for a client to connect to it. When the client 
+// connects, a thread is created to handle communications 
+// with that client, and this loop is free to wait for the
+// next client connect request. It is an infinite loop.
+
+
+        
+        hPipe = CreateNamedPipe(
+            lpszPipename,             // pipe name 
+            PIPE_ACCESS_DUPLEX,       // read/write access 
+            PIPE_TYPE_BYTE |       // byte type pipe 
+            PIPE_READMODE_BYTE |   // byte-read mode 
+            PIPE_WAIT,                // blocking mode 
+            PIPE_UNLIMITED_INSTANCES, // max. instances  
+            BUFSIZE,                  // output buffer size 
+            BUFSIZE,                  // input buffer size 
+            0,                        // client time-out 
+            NULL);                    // default security attribute 
+
+        if (hPipe == INVALID_HANDLE_VALUE)
+        {
+            return LogLastError(TEXT("create named pipe failed"));
+            
+        }
+
+        // Wait for the client to connect; if it succeeds, 
+        // the function returns a nonzero value. If the function
+        // returns zero, GetLastError returns ERROR_PIPE_CONNECTED. 
+
+        fConnected = ConnectNamedPipe(hPipe, NULL) ?
+            TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
+
+        if (fConnected)
+        {
+            *pipe = hPipe;
+            return ERROR_SUCCESS;
+        }
+        
+            // The client could not connect, so close the pipe. 
+            CloseHandle(hPipe);
+        return ERROR_PIPE_CONNECTED;
+    
+}
+
+static DWORD WINAPI
+ReceivePackets(_Inout_ DWORD_PTR SessionPtr)
+{
+    WINTUN_SESSION_HANDLE Session = (WINTUN_SESSION_HANDLE)SessionPtr;
+    HANDLE WaitHandles[] = { WintunGetReadWaitEvent(Session), ferrum.quitEvent };
+    int result=FerrumCreatePipe(TEXT("\\\\.\\pipe\\ferrum_read"),&ferrum.childPipe.read);
+    if (result) {
+       return LogLastError(TEXT("read pipe create failed:"));
+        
+    }
+
+    while (ferrum.work)
+    {
+        DWORD PacketSize;
+        BYTE* Packet = WintunReceivePacket(Session, &PacketSize);
+        if (Packet)
+        {
+            DWORD written;
+            PrintPacket(Packet, PacketSize);
+            BOOL fSuccess = WriteFile(ferrum.childPipe.read, Packet, PacketSize, &written, NULL);
+            WintunReleaseReceivePacket(Session, Packet);
+            if (!fSuccess)
+            {
+                return LogLastError(L"childpipe write error:");
+                
+            }
+        }
+        else
+        {
+            DWORD LastError = GetLastError();
+            switch (LastError)
+            {
+            case ERROR_NO_MORE_ITEMS:
+                if (WaitForMultipleObjects(_countof(WaitHandles), WaitHandles, FALSE, INFINITE) == WAIT_OBJECT_0)
+                    continue;
+                return ERROR_SUCCESS;
+            default:
+                LogError(L"packet read failed", LastError);
+                return LastError;
+            }
+        }
+    }
+    return ERROR_SUCCESS;
+}
+
+static DWORD WINAPI
+SendPackets(_Inout_ DWORD_PTR SessionPtr)
+{
+    WINTUN_SESSION_HANDLE Session = (WINTUN_SESSION_HANDLE)SessionPtr;
+   
+    int result = FerrumCreatePipe(TEXT("\\\\.\\pipe\\ferrum_write"), &ferrum.childPipe.write);
+    if (result) {
+       return LogLastError(TEXT("read pipe create failed:"));        
+    }
+    HANDLE WaitHandles[] = { ferrum.childPipe.write, ferrum.quitEvent };
+    DWORD dwRead, dwWritten;
+    CHAR chBuf[BUFSIZE];
+    BOOL fSuccess;
+    while (ferrum.work)
+    {
+        fSuccess=ReadFile(ferrum.childPipe.write, chBuf, BUFSIZE, &dwRead, NULL);
+        if (!fSuccess) {
+           return LogLastError(L"read pipe error:");
+            
+        }
+        BYTE* Packet = WintunAllocateSendPacket(Session, dwRead);
+        if (Packet)
+        {
+            memcpy(Packet, chBuf, dwRead);
+            WintunSendPacket(Session, Packet);
+        }
+        else if (GetLastError() != ERROR_BUFFER_OVERFLOW)
+            return LogLastError(L"Packet write failed");
+
+        //switch (WaitForSingleObject(ferrum.quitEvent, 1000 /* 1 second */))
+        //{
+        //case WAIT_ABANDONED:
+        //case WAIT_OBJECT_0:
+        //    return ERROR_SUCCESS;
+        //}
+    }
+    return ERROR_SUCCESS;
+}
+
+int FerrumRxTxWinTun(void) {
+    DWORD  LastError = ERROR_SUCCESS;
+   // MIB_UNICASTIPADDRESS_ROW AddressRow;
+  /*  InitializeUnicastIpAddressEntry(&AddressRow);
+    WintunGetAdapterLUID(Adapter, &AddressRow.InterfaceLuid);*/
+    //AddressRow.Address.Ipv4.sin_family = AF_INET;
+    //AddressRow.Address.Ipv4.sin_addr.S_un.S_addr = htonl((10 << 24) | (6 << 16) | (7 << 8) | (7 << 0)); // 10.6.7.7 
+    //AddressRow.OnLinkPrefixLength = 24; // This is a /24 network 
+    //AddressRow.DadState = IpDadStatePreferred;
+    //LastError = CreateUnicastIpAddressEntry(&AddressRow);
+   /* if (LastError != ERROR_SUCCESS && LastError != ERROR_OBJECT_ALREADY_EXISTS)
+    {
+        LogError(L"Failed to set IP address", LastError);
+        goto cleanupAdapter;
+    }*/
+    ferrum.work = TRUE;
+    WINTUN_SESSION_HANDLE Session = WintunStartSession(ferrum.adapter, 0x400000);
+    if (!Session)
+    {
+        LastError = LogLastError(L"Failed to create tun session");
+        return LastError;
+    }
+
+    Log(WINTUN_LOG_INFO, L"launching threads and mangling packets...");
+
+    HANDLE Workers[] = { CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)ReceivePackets, (LPVOID)Session, 0, NULL),
+                         CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)SendPackets, (LPVOID)Session, 0, NULL) };
+    if (!Workers[0] || !Workers[1])
+    {
+        LastError = LogError(L"Failed to create threads", GetLastError());
+        goto cleanupWorkers;
+    }
+    ferrum.tunThread.read = Workers[0];
+    ferrum.tunThread.write = Workers[1];
+    ferrum.session = Session;
+    //WaitForMultipleObjectsEx(_countof(Workers), Workers, TRUE, INFINITE, TRUE);
+    Sleep(500);
+    return ERROR_SUCCESS;
+
+cleanupWorkers:
+    ferrum.work = FALSE;
+    SetEvent(ferrum.quitEvent);
+    for (size_t i = 0; i < _countof(Workers); ++i)
+    {
+        if (Workers[i])
+        {
+            WaitForSingleObject(Workers[i], INFINITE);
+            CloseHandle(Workers[i]);
+        }
+    }
+    WintunEndSession(Session);
+}
+
 

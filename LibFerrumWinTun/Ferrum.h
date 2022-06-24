@@ -17,6 +17,8 @@ extern "C" {
 		HMODULE wintun;
 		// wintun adapter
 		WINTUN_ADAPTER_HANDLE adapter;
+		// wintun session
+		WINTUN_SESSION_HANDLE session;
 		HANDLE quitEvent;
 		//executed child process structure
 		struct {
@@ -40,6 +42,15 @@ extern "C" {
 			HANDLE stderrThread;
 		}childProcess;
 
+		struct {
+			HANDLE read;
+			HANDLE write;
+		}tunThread;
+
+		struct {
+			HANDLE read;
+			HANDLE write;
+		}childPipe;
 		
 	}ferrum_t;
 

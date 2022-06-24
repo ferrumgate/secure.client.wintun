@@ -6,29 +6,34 @@
 
 static void onExit(void) {
 	fprintf(stderr, "onexit\n");
-	ferrumStopWinTun();
+	FerrumStopWinTun();
 }
 
 int main(int argc, char* argv[])
 {
+	// register on exit method
 	atexit(onExit);
-	//start tunnel
-	int result=ferrumStartWinTun();
+	// start tunnel
+	int result=FerrumStartWinTun();
 	if (result != ERROR_SUCCESS) {
 
 		exit(result);
 	}
-	//on exit stop tunnel
+	// 
+	result = FerrumRxTxWinTun();
+	if (result!=ERROR_SUCCESS) {
+		exit(result);
+	}
 	
-	fprintf(stdout, "%d %s %s\n", argc, argv[0],argv[1]);
 	//create child secure connection over ssh
 	TCHAR cmd[1024] = { 0, };
-	MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, argv[1], (size_t)strlen(argv[1]),cmd, 1024);
-	result = ferrumCreateChildProcess(cmd, &ferrum.childProcess.info);
+	// convert input args to tchar
+	MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, argv[1], (int)strlen(argv[1]),cmd, 1024);
+	result = FerrumCreateChildProcess(cmd, &ferrum.childProcess.info);
 	if (result != ERROR_SUCCESS) {
 		exit(result);
 	}
-	ferrumWaitChildProcess(&ferrum.childProcess);
+	FerrumWaitChildProcess(&ferrum.childProcess);
 	return 0;
 }
 

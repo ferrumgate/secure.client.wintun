@@ -20,13 +20,18 @@ extern "C" {
 
 
 	// starts wintun adapter
-	int ferrumStartWinTun(void);
+	int FerrumStartWinTun(void);
 	// stops wintun adapter
-	int ferrumStopWinTun(void);
+	int FerrumStopWinTun(void);
+	// start send/receive
+	int FerrumRxTxWinTun(void);
+	// create a named pipe between for using between child and parent
+	int FerrumCreatePipe(const TCHAR name[], __inout HANDLE* pipe);
 	// create a child process
-	int ferrumCreateChildProcess(TCHAR szCmdline[], PROCESS_INFORMATION* pi);
+	int FerrumCreateChildProcess(TCHAR szCmdline[], PROCESS_INFORMATION* pi);
 	// wait for created child process to finish
-	int ferrumWaitChildProcess(PROCESS_INFORMATION* pi);
+	int FerrumWaitChildProcess(PROCESS_INFORMATION* pi);
+
 
 #ifdef __cplusplus
 }
